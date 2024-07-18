@@ -10,6 +10,7 @@ telebot = "*"
 openai = "*"
 redis = "*"
 celery = "*"
+ffmpeg-python = "*"
 
 [dev-packages]
 

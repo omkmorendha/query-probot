@@ -55,10 +55,12 @@ def save_response(chat_id, key, value):
 @bot.message_handler(commands=["start", "restart"])
 def start(message):
     """Handle /start and /restart commands."""
+    message_to_send = "Welcome!\nI will send you questions for you to answer and your answers will then be sent to the appropriate team members!\nHold down the microphone to answer."
+    bot.send_message(message.chat.id, message_to_send, parse_mode="Markdown")
     bot.send_message(message.chat.id, questions[0], parse_mode="Markdown")
 
 
-@bot.message_handler(func=lambda message: True)
+@bot.message_handler(content_types=["document", "audio", "voice", "text"])
 def handle_responses(message):
     """Handle text and audio responses."""
     chat_id = message.chat.id
@@ -111,7 +113,7 @@ def download_and_process(remote_path, local_path, chat_id, question_number):
 def process_audio(input_path, chat_id, question_number):
     """Process audio file."""
     output_path = os.path.join(
-        "downloads", "compressed_" + os.path.basename(input_path)
+        "downloads", "compressed_" + f"{question_number}_" + os.path.basename(input_path) 
     )
 
     try:
@@ -132,9 +134,13 @@ def process_audio(input_path, chat_id, question_number):
     except Exception as e:
         print(f"Unexpected error: {e}")
     finally:
-        if input_path:
+        if os.path.exists(input_path):
             os.remove(input_path)
-        if output_path:
+
+        if not output_path.endswith(".mp3"):
+            output_path = os.path.splitext(output_path)[0] + ".mp3"
+
+        if os.path.exists(output_path):
             os.remove(output_path)
 
 
@@ -174,6 +180,7 @@ def transcribe_audio(file_path):
             transcription = client.audio.transcriptions.create(
                 model="whisper-1", file=f, language="en"
             )
+
         return transcription.text
     except Exception as e:
         logger.error(f"Error transcribing audio: {e}")

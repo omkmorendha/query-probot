@@ -60,6 +60,64 @@ questions = [
 ]
 
 
+prompts = {
+    7 : "You are a point-scoring bot that strictly replies with 0, 5 or 10, follow the following points break down: Award 10 points for this best Answer:  Building  Rapport  - any mention of building rapport such as  playing with the child,  following child's lead in play/child-led play  , gaining trust, asking parents  about their concerns, addressing parent concerns, explaining what to expect, etc.  The key word  is rapport with how they plan to do that.  Award 5 Points for this  Acceptable Answer: Play (but no mention of child-led or following child's  lead)  Award 0 points Not acceptable:  Target goals right away.  Have parents wait outside. Anything  that is not building rapport or gaining trust.",
+    8 : "You are a point-scoring bot that strictly replies with 0, 5 or 10, follow the following points break down: Award 10 Points for this Best Answer:  Any list of 5  core/functional words  (e.g., help, want,  more, done/all done, yes, no, eat, drink, hurt, again, etc.)  Award 5 Points for this Acceptable Answers:  mom/dad/caregiver's name  Award 0 Points - Not Acceptable: colors, shapes, numbers, any word that is NOT functional and  would not allow for generalization to other tasks.  phone number, SSN - too old for a little child  who is 2-years-old to learn especially if they have no other words that they speak yet.",
+    9 : "You are a point-scoring bot that strictly replies with 0, 5 or 10, follow the following points break down: Award 10 points for this Best answers:  Any mention of the following:   Parent Coaching,  using  materials/toys in their home, letting parents know how to use the toys in the home to facilitate  language during play, communication temptations, songs on youtube, allowing the child to run  around and learn in the home, using actual toys that I have in my home, etc. -  must mention  family is actively involved in the session Award 5 points for this Acceptable answers: occasional computer games, boom cards, ultimate  SLP, etc.  Award 0 points for this Unacceptable answer(s):  Strapping the child into a high chair, parents  waiting in another room, no mention of parent coaching or the parents, lost look or I don't know.",
+}
+
+
+def get_score(question, transcription):
+    """Generate a report based on the transcription using GPT-3.5."""
+
+    if question not in prompts:
+        return None
+
+    try:
+        openai_client = openai.OpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY"),
+        )
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo-0125",
+            messages=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompts[question]
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": transcription
+                        }
+                    ],
+                },
+            ],
+            temperature=0,
+        )
+        report = response.choices[0].message.content
+
+        try:
+            score = int(report)
+
+            if score in (0, 5, 10):
+                return score
+        except:
+            pass
+
+        return 0
+    
+    except Exception as e:
+        logger.error(f"Error generating report: {e}")
+        return None
+
+
 @bot.message_handler(commands=["start", "restart"])
 def start(message):
     """Handle /start and /restart commands."""
@@ -132,7 +190,11 @@ def send_email(chat_id):
             response = responses.get(f"question_{i}")
             if response:
                 response_dict = ast.literal_eval(response)
-                message += f"{question}\nAnswer: {response_dict['text']}\nScore: {response_dict['score']} \n\n"
+
+                if "score" in response_dict:
+                    message += f"{question}\nAnswer: {response_dict['text']}\nScore: {response_dict['score']} \n\n"  
+                else:
+                    message += f"{question}\nAnswer: {response_dict['text']}\n\n"
         
         bot.send_message(chat_id, message)
         bot.send_message(chat_id, "Data sent successfully!")
@@ -230,6 +292,13 @@ def handle_responses(message):
         current_question = len(responses)
 
     if current_question < len(questions):
+        if current_question == 2:
+            bot.send_message(
+                chat_id,
+                "I will ask you a few questions and score your answers based on information provided by  the team.  Your answers and overall score will then be passed on to the team for follow up  at your preferred number or email address.  We use this method for fairness and everyone  is asked the same questions.  If your answers are within a certain score the team will  contact you.  You may also follow up at  hello@melospeech.com  . Any questions you have  can be added at the end of the process and will be forwarded to the team for follow up.",
+                parse_mode="Markdown",
+            )
+
         if current_question in [3, 5]:
             bot.send_message(
                 chat_id,
@@ -244,20 +313,19 @@ def handle_responses(message):
                 reply_markup=get_keyboard(current_question),
             )
 
-        if current_question == 2:
-            bot.send_message(
-                chat_id,
-                "I will ask you a few questions and score your answers based on information provided by  the team.  Your answers and overall score will then be passed on to the team for follow up  at your preferred number or email address.  We use this method for fairness and everyone  is asked the same questions.  If your answers are within a certain score the team will  contact you.  You may also follow up at  hello@melospeech.com  . Any questions you have  can be added at the end of the process and will be forwarded to the team for follow up.",
-                parse_mode="Markdown",
-            )
-
         if message.content_type == "text":
             text = message.text
-            score = 0
-            response = {
-                "text": message.text,
-                "score": score,
-            }
+            score = get_score(current_question, text)
+
+            if score is not None:
+                response = {
+                    "text": message.text,
+                    "score": score,
+                }
+            else:
+                response = {
+                    "text": message.text,
+                }
             save_response(chat_id, f"question_{current_question}", response)
 
             next_question = current_question + 1
@@ -280,7 +348,7 @@ def handle_responses(message):
             audio_file = message.audio or message.voice
             file_info = bot.get_file(audio_file.file_id)
             file_path = f"downloads/{audio_file.file_unique_id}.{file_info.file_path.split('.')[-1]}"
-            bot.reply_to(message, "Please wait while we process the file")
+            bot.reply_to(message, "Please wait while we process the audio")
             download_and_process.delay(
                 file_info.file_path, file_path, chat_id, current_question
             )
@@ -324,14 +392,21 @@ def process_audio(input_path, chat_id, question_number):
         if compressed_path:
             transcription = transcribe_audio(compressed_path)
             if transcription:
-                score = 0
-                data = {
-                    "text": transcription,
-                    "score": score,
-                }
+                score = get_score(question_number, transcription)
+                
+                if score is not None:
+                    data = {
+                        "text": transcription,
+                        "score": score,
+                    }
+                else:
+                    data = {
+                        "text": transcription,
+                    }
 
                 save_response(chat_id, f"question_{question_number}", data)
                 next_question = question_number + 1
+                print(next_question, question_number)
                 if next_question < len(questions):
                     bot.send_message(
                         chat_id,

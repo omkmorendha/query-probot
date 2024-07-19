@@ -47,6 +47,16 @@ questions = [
     "What is your name?",
     "What is your state, city, and zip code?",
     "What is your preferred contact number?",
+    "How many years of experience in the field of communication sciences (SLP/SLPA) do you have?",
+    "In what settings have you worked?",
+    "Do you have experience with infants and toddlers under 3?",
+    "If you know any other languages, please share them.",
+    "It is your first session with a little 2 year old.  You have done a full case review and you  see that he is not speaking but appears to understand.  Parents are VERY concerned.  They do not know you and have never met you before.  What is this first session in the  home looking like?  What do you do?",
+    "This little one is not speaking.  Just pretend that you knew that he would only ever speak 5  words his whole life (we can't know this, but pretend) - and these 5 words were taught by  you at the age of 2.  What 5 words would you wish that you could teach him?",
+    "This family knows and loves you now, but suppose they have an illness in the home - we  don't want you to go to a home if they are sick - and we will offer a virtual session.   How  are you keeping this little one engaged for a virtual 60 minute session?",
+    "What is your current availability?",
+    "What is your hourly pay rate?",
+    "Do you have any questions for me? I will forward them to our team and get back to you after we  review your responses internally if the parameters are met.",
 ]
 
 
@@ -64,7 +74,6 @@ def start(message):
 def save_response(chat_id, key, value):
     try:
         responses = redis_client.hgetall(chat_id) or {}
-        
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
         
         if isinstance(value, dict):
@@ -76,7 +85,7 @@ def save_response(chat_id, key, value):
         redis_client.hset(chat_id, mapping=responses)
     
     except Exception as e:
-        print(f"Error is save_response {e}")
+        print(f"Error in save_response {e}")
 
 
 def clear_responses(chat_id):
@@ -85,6 +94,17 @@ def clear_responses(chat_id):
 
 def get_keyboard(question_number):
     keyboard = types.InlineKeyboardMarkup()
+
+    if question_number == 3:  # Years of experience
+        keyboard.add(
+            types.InlineKeyboardButton("1+ years", callback_data="1+ years"),
+            types.InlineKeyboardButton("Less than 1 year", callback_data="Less than 1 year")
+        )
+    elif question_number == 5:  # Experience with infants and toddlers
+        keyboard.add(
+            types.InlineKeyboardButton("Yes", callback_data="5_Yes"),
+            types.InlineKeyboardButton("No", callback_data="5_No")
+        )
 
     if question_number not in [0, len(questions)]:
         restart_button = types.InlineKeyboardButton("Restart", callback_data="restart")
@@ -160,6 +180,42 @@ def handle_callback(call):
             )
     elif call.data == "send_email":
         send_email(chat_id)
+    elif call.data in ["1+ years", "Less than 1 year"]:
+        current_question = 3
+        score = 10 if call.data == "1+ years" else 0
+        response = {
+            "text": call.data,
+            "score": score,
+        }
+        save_response(chat_id, f"question_{current_question}", response)
+        next_question = current_question + 1
+        bot.send_message(
+            chat_id,
+            questions[next_question],
+            parse_mode="Markdown",
+            reply_markup=get_keyboard(next_question),
+        )
+    elif call.data in ["5_Yes", "5_No"]:
+        current_question = 5
+        score = 10 if call.data == "5_Yes" else 0
+
+        response = {
+            "text": "Yes" if call.data == "5_Yes" else "No",
+            "score": score,
+        }
+        save_response(chat_id, f"question_{current_question}", response)
+        next_question = current_question + 1
+        bot.send_message(
+            chat_id,
+            questions[next_question],
+            parse_mode="Markdown",
+            reply_markup=get_keyboard(next_question),
+        )
+    else:
+        bot.answer_callback_query(call.id, "Invalid option")
+
+    bot.answer_callback_query(call.id)
+
 
 
 @bot.message_handler(content_types=["document", "audio", "voice", "text"])
@@ -174,6 +230,27 @@ def handle_responses(message):
         current_question = len(responses)
 
     if current_question < len(questions):
+        if current_question in [3, 5]:
+            bot.send_message(
+                chat_id,
+                "Please use the buttons to answer the question",
+                parse_mode="Markdown",
+            )
+
+            bot.send_message(
+                chat_id,
+                questions[current_question],
+                parse_mode="Markdown",
+                reply_markup=get_keyboard(current_question),
+            )
+
+        if current_question == 2:
+            bot.send_message(
+                chat_id,
+                "I will ask you a few questions and score your answers based on information provided by  the team.  Your answers and overall score will then be passed on to the team for follow up  at your preferred number or email address.  We use this method for fairness and everyone  is asked the same questions.  If your answers are within a certain score the team will  contact you.  You may also follow up at  hello@melospeech.com  . Any questions you have  can be added at the end of the process and will be forwarded to the team for follow up.",
+                parse_mode="Markdown",
+            )
+
         if message.content_type == "text":
             text = message.text
             score = 0
@@ -195,7 +272,7 @@ def handle_responses(message):
             else:
                 bot.send_message(
                     chat_id,
-                    "Thank you! All your responses have been recorded.",
+                    "Thank you! All your responses have been recorded. Would you like to submit your application?",
                     reply_markup=get_keyboard(next_question),
                 )
 
@@ -265,7 +342,7 @@ def process_audio(input_path, chat_id, question_number):
                 else:
                     bot.send_message(
                         chat_id,
-                        "Thank you! All your responses have been recorded.",
+                        "Thank you! All your responses have been recorded.  Would you like to submit your application?",
                         reply_markup=get_keyboard(next_question),
                     )
             else:

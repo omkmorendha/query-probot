@@ -38,6 +38,9 @@ WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET")
 TO_EMAIL = ast.literal_eval(os.environ.get("TO_EMAIL"))
 
 bot = TeleBot(BOT_TOKEN, threaded=True)
+# bot.remove_webhook()
+# time.sleep(1)
+# bot.set_webhook(url=f"{URL}/{WEBHOOK_SECRET}")
 
 questions = [
     "What is your name?",
@@ -46,18 +49,89 @@ questions = [
 ]
 
 
-def save_response(chat_id, key, value):
-    responses = redis_client.hgetall(chat_id) or {}
-    responses[key] = value
-    redis_client.hmset(chat_id, responses)
-
-
 @bot.message_handler(commands=["start", "restart"])
 def start(message):
     """Handle /start and /restart commands."""
     message_to_send = "Welcome!\nI will send you questions for you to answer and your answers will then be sent to the appropriate team members!\nHold down the microphone to answer."
     bot.send_message(message.chat.id, message_to_send, parse_mode="Markdown")
     bot.send_message(message.chat.id, questions[0], parse_mode="Markdown")
+
+
+def save_response(chat_id, key, value):
+    responses = redis_client.hgetall(chat_id) or {}
+
+    responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
+    if isinstance(value, dict):
+        value = str(value)
+
+    responses[key] = value
+    redis_client.hset(chat_id, mapping=responses)
+
+
+def clear_responses(chat_id):
+    redis_client.delete(chat_id)
+
+
+def get_keyboard(question_number):
+    keyboard = types.InlineKeyboardMarkup()
+    print(question_number)
+
+    if question_number not in [0, len(questions)]:
+        restart_button = types.InlineKeyboardButton("Restart", callback_data="restart")
+        last_question_button = types.InlineKeyboardButton(
+            "Answer Last Question Again", callback_data="last_question"
+        )
+        keyboard.add(restart_button, last_question_button)
+
+    elif question_number >= (len(questions)):
+        send_email_button = types.InlineKeyboardButton(
+            "Send email", callback_data="send_email"
+        )
+        keyboard.add(send_email_button)
+
+    return keyboard
+
+
+@bot.message_handler(commands=["start", "restart"])
+def start(message):
+    """Handle /start and /restart commands."""
+    chat_id = message.chat.id
+    clear_responses(chat_id)
+    message_to_send = "Welcome!\nI will send you questions for you to answer and your answers will then be sent to the appropriate team members!\nHold down the microphone to answer."
+    bot.send_message(chat_id, message_to_send, parse_mode="Markdown")
+    bot.send_message(chat_id, questions[0], parse_mode="Markdown")
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    chat_id = call.message.chat.id
+    if call.data == "restart":
+        clear_responses(chat_id)
+        start(call.message)
+    elif call.data == "last_question":
+        responses = redis_client.hgetall(chat_id) or {}
+        responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
+
+        current_question = len(responses)
+        if current_question > 0:
+            last_question_index = current_question - 1
+            key_to_remove = f"question_{last_question_index}"
+            redis_client.hdel(chat_id, key_to_remove)
+
+            bot.send_message(
+                chat_id,
+                questions[last_question_index],
+                parse_mode="Markdown",
+                reply_markup=get_keyboard(last_question_index),
+            )
+        else:
+            bot.send_message(
+                chat_id,
+                "There is no previous question to answer.",
+                reply_markup=get_keyboard(current_question),
+            )
+    elif call.data == "send_email":
+        pass
 
 
 @bot.message_handler(content_types=["document", "audio", "voice", "text"])
@@ -73,21 +147,44 @@ def handle_responses(message):
 
     if current_question < len(questions):
         if message.content_type == "text":
-            response = message.text
+            text = message.text
+            score = 0
+            response = {
+                "text": message.text,
+                "score": score,
+            }
             save_response(chat_id, f"question_{current_question}", response)
+
             next_question = current_question + 1
+
             if next_question < len(questions):
-                bot.send_message(chat_id, questions[next_question], parse_mode="Markdown")
+                bot.send_message(
+                    chat_id,
+                    questions[next_question],
+                    parse_mode="Markdown",
+                    reply_markup=get_keyboard(next_question),
+                )
             else:
-                bot.send_message(chat_id, "Thank you! All your responses have been recorded.")
+                bot.send_message(
+                    chat_id,
+                    "Thank you! All your responses have been recorded.",
+                    reply_markup=get_keyboard(next_question),
+                )
+
         elif message.content_type in ["audio", "voice"]:
             audio_file = message.audio or message.voice
             file_info = bot.get_file(audio_file.file_id)
             file_path = f"downloads/{audio_file.file_unique_id}.{file_info.file_path.split('.')[-1]}"
             bot.reply_to(message, "Please wait while we process the file")
-            download_and_process.delay(file_info.file_path, file_path, chat_id, current_question)
+            download_and_process.delay(
+                file_info.file_path, file_path, chat_id, current_question
+            )
     else:
-        bot.send_message(chat_id, "All questions have been answered. Thank you!")
+        bot.send_message(
+            chat_id,
+            "All questions have been answered. Thank you!",
+            reply_markup=get_keyboard(current_question),
+        )
 
 
 @app.route(f"/{WEBHOOK_SECRET}", methods=["POST"])
@@ -113,7 +210,8 @@ def download_and_process(remote_path, local_path, chat_id, question_number):
 def process_audio(input_path, chat_id, question_number):
     """Process audio file."""
     output_path = os.path.join(
-        "downloads", "compressed_" + f"{question_number}_" + os.path.basename(input_path) 
+        "downloads",
+        "compressed_" + f"{question_number}_" + os.path.basename(input_path),
     )
 
     try:
@@ -121,16 +219,39 @@ def process_audio(input_path, chat_id, question_number):
         if compressed_path:
             transcription = transcribe_audio(compressed_path)
             if transcription:
-                save_response(chat_id, f"question_{question_number}", transcription)
+                score = 0
+                data = {
+                    "text": transcription,
+                    "score": score,
+                }
+
+                save_response(chat_id, f"question_{question_number}", data)
                 next_question = question_number + 1
                 if next_question < len(questions):
-                    bot.send_message(chat_id, questions[next_question], parse_mode="Markdown")
+                    bot.send_message(
+                        chat_id,
+                        questions[next_question],
+                        parse_mode="Markdown",
+                        reply_markup=get_keyboard(next_question),
+                    )
                 else:
-                    bot.send_message(chat_id, "Thank you! All your responses have been recorded.")
+                    bot.send_message(
+                        chat_id,
+                        "Thank you! All your responses have been recorded.",
+                        reply_markup=get_keyboard(next_question),
+                    )
             else:
-                bot.send_message(chat_id, "Failed to transcribe audio.")
+                bot.send_message(
+                    chat_id,
+                    "Failed to transcribe audio.",
+                    reply_markup=get_keyboard(question_number),
+                )
         else:
-            bot.send_message(chat_id, "Failed to compress audio.")
+            bot.send_message(
+                chat_id,
+                "Failed to compress audio.",
+                reply_markup=get_keyboard(question_number),
+            )
     except Exception as e:
         print(f"Unexpected error: {e}")
     finally:

@@ -183,6 +183,7 @@ def get_keyboard(question_number):
 def send_email(chat_id):
     responses = redis_client.hgetall(chat_id) or {}
     responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
+    total_score = 0
     
     if responses:
         message = "Recorded data:\n\n"
@@ -192,11 +193,13 @@ def send_email(chat_id):
                 response_dict = ast.literal_eval(response)
 
                 if "score" in response_dict:
-                    message += f"{question}\nAnswer: {response_dict['text']}\nScore: {response_dict['score']} \n\n"  
+                    total_score += response_dict['score']
+                    message += f"Question: {question}\nAnswer: {response_dict['text']}\nRemote Path: {response_dict.get('remote_path')}\nScore: {response_dict['score']} \n\n"  
                 else:
-                    message += f"{question}\nAnswer: {response_dict['text']}\n\n"
+                    message += f"Question: {question}\nAnswer: {response_dict['text']}\nRemote Path: {response_dict.get('remote_path')}\n\n"
         
-        bot.send_message(chat_id, message)
+        output = f"Total Score: {total_score}/50 \n\n{message}"
+        bot.send_message(chat_id, output)
         bot.send_message(chat_id, "Data sent successfully!")
     else:
         bot.send_message(chat_id, "No data recorded yet.")
@@ -295,11 +298,14 @@ def handle_responses(message):
         if current_question == 2:
             bot.send_message(
                 chat_id,
-                "I will ask you a few questions and score your answers based on information provided by  the team.  Your answers and overall score will then be passed on to the team for follow up  at your preferred number or email address.  We use this method for fairness and everyone  is asked the same questions.  If your answers are within a certain score the team will  contact you.  You may also follow up at  hello@melospeech.com  . Any questions you have  can be added at the end of the process and will be forwarded to the team for follow up.",
+                "I will ask you a few questions and score your answers based on information provided by the team. Your answers and overall score will then be passed on to the team for follow up  at your preferred number or email address.  We use this method for fairness and everyone  is asked the same questions.  If your answers are within a certain score the team will  contact you.  You may also follow up at  hello@melospeech.com  . Any questions you have  can be added at the end of the process and will be forwarded to the team for follow up.",
                 parse_mode="Markdown",
             )
 
         if current_question in [3, 5]:
+            key_to_remove = f"question_{current_question}"
+            redis_client.hdel(chat_id, key_to_remove)
+
             bot.send_message(
                 chat_id,
                 "Please use the buttons to answer the question",
@@ -309,11 +315,10 @@ def handle_responses(message):
             bot.send_message(
                 chat_id,
                 questions[current_question],
-                parse_mode="Markdown",
                 reply_markup=get_keyboard(current_question),
             )
 
-        if message.content_type == "text":
+        elif message.content_type == "text":
             text = message.text
             score = get_score(current_question, text)
 
@@ -350,13 +355,13 @@ def handle_responses(message):
             file_path = f"downloads/{audio_file.file_unique_id}.{file_info.file_path.split('.')[-1]}"
             bot.reply_to(message, "Please wait while we process the audio")
             download_and_process.delay(
-                file_info.file_path, file_path, chat_id, current_question
+                file_info.file_id, file_path, chat_id, current_question
             )
     else:
         bot.send_message(
             chat_id,
             "All questions have been answered. Thank you!",
-            reply_markup=get_keyboard(current_question),
+            # reply_markup=get_keyboard(current_question),
         )
 
 
@@ -369,18 +374,19 @@ def webhook():
 
 
 @celery.task
-def download_and_process(remote_path, local_path, chat_id, question_number):
+def download_and_process(file_id, local_path, chat_id, question_number):
     """Download file from Telegram and process."""
-    downloaded_file = bot.download_file(remote_path)
+    file_info = bot.get_file(file_id)
+    downloaded_file = bot.download_file(file_info.file_path)
     os.makedirs(os.path.dirname(local_path), exist_ok=True)
     with open(local_path, "wb") as new_file:
         new_file.write(downloaded_file)
 
-    process_audio.delay(local_path, chat_id, question_number)
+    process_audio.delay(local_path, chat_id, question_number, file_id)
 
 
 @celery.task
-def process_audio(input_path, chat_id, question_number):
+def process_audio(input_path, chat_id, question_number, file_id):
     """Process audio file."""
     output_path = os.path.join(
         "downloads",
@@ -394,19 +400,23 @@ def process_audio(input_path, chat_id, question_number):
             if transcription:
                 score = get_score(question_number, transcription)
                 
+                file_info = bot.get_file(file_id)
+                downloadable_link = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+
                 if score is not None:
                     data = {
                         "text": transcription,
+                        "remote_path": downloadable_link,
                         "score": score,
                     }
                 else:
                     data = {
                         "text": transcription,
+                        "remote_path": downloadable_link,
                     }
 
                 save_response(chat_id, f"question_{question_number}", data)
                 next_question = question_number + 1
-                print(next_question, question_number)
                 if next_question < len(questions):
                     bot.send_message(
                         chat_id,
@@ -417,7 +427,7 @@ def process_audio(input_path, chat_id, question_number):
                 else:
                     bot.send_message(
                         chat_id,
-                        "Thank you! All your responses have been recorded.  Would you like to submit your application?",
+                        "Thank you! All your responses have been recorded. Would you like to submit your application?",
                         reply_markup=get_keyboard(next_question),
                     )
             else:

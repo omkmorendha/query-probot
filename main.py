@@ -52,6 +52,9 @@ questions = [
 @bot.message_handler(commands=["start", "restart"])
 def start(message):
     """Handle /start and /restart commands."""
+    chat_id = message.chat.id
+    clear_responses(chat_id)
+
     message_to_send = "Welcome!\nI will send you questions for you to answer and your answers will then be sent to the appropriate team members!\nHold down the microphone to answer."
     bot.send_message(message.chat.id, message_to_send, parse_mode="Markdown")
     bot.send_message(message.chat.id, questions[0], parse_mode="Markdown")
@@ -74,7 +77,6 @@ def clear_responses(chat_id):
 
 def get_keyboard(question_number):
     keyboard = types.InlineKeyboardMarkup()
-    print(question_number)
 
     if question_number not in [0, len(questions)]:
         restart_button = types.InlineKeyboardButton("Restart", callback_data="restart")
@@ -90,6 +92,24 @@ def get_keyboard(question_number):
         keyboard.add(send_email_button)
 
     return keyboard
+
+
+def send_email(chat_id):
+    responses = redis_client.hgetall(chat_id) or {}
+    responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
+    
+    if responses:
+        message = "Recorded data:\n\n"
+        for i, question in enumerate(questions):
+            response = responses.get(f"question_{i}")
+            if response:
+                response_dict = ast.literal_eval(response)
+                message += f"{question}\nAnswer: {response_dict['text']}\nScore: {response_dict['score']} \n\n"
+        
+        bot.send_message(chat_id, message)
+        bot.send_message(chat_id, "Data sent successfully!")
+    else:
+        bot.send_message(chat_id, "No data recorded yet.")
 
 
 @bot.message_handler(commands=["start", "restart"])
@@ -131,7 +151,7 @@ def handle_callback(call):
                 reply_markup=get_keyboard(current_question),
             )
     elif call.data == "send_email":
-        pass
+        send_email(chat_id)
 
 
 @bot.message_handler(content_types=["document", "audio", "voice", "text"])

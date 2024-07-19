@@ -6,6 +6,7 @@ import logging
 import redis
 import ast
 import time
+import json
 import ffmpeg
 from celery import Celery
 from dotenv import load_dotenv
@@ -61,14 +62,21 @@ def start(message):
 
 
 def save_response(chat_id, key, value):
-    responses = redis_client.hgetall(chat_id) or {}
+    try:
+        responses = redis_client.hgetall(chat_id) or {}
+        
+        responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
+        
+        if isinstance(value, dict):
+            value = json.dumps(value)
+        elif not isinstance(value, (str, int, float)):
+            value = str(value)
 
-    responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
-    if isinstance(value, dict):
-        value = str(value)
-
-    responses[key] = value
-    redis_client.hset(chat_id, mapping=responses)
+        responses[key] = value
+        redis_client.hset(chat_id, mapping=responses)
+    
+    except Exception as e:
+        print(f"Error is save_response {e}")
 
 
 def clear_responses(chat_id):

@@ -35,12 +35,6 @@ pool = ConnectionPool.from_url(redis_url)
 
 celery = Celery(app.name, broker=app.config["CELERY_BROKER_URL"])
 celery.conf.update(app.config)
-celery.conf.update(
-    {
-        "CELERY_BROKER_TRANSPORT_OPTIONS": {"max_connections": 5},
-        "CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS": {"max_connections": 5},
-    }
-)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")

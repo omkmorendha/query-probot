@@ -29,7 +29,6 @@ app.config["CELERY_RESULT_BACKEND"] = os.environ.get(
     "REDIS_URL", "redis://localhost:6379/0"
 )
 redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-redis_client = redis.StrictRedis.from_url(redis_url)
 
 celery = Celery(app.name, broker=app.config["CELERY_BROKER_URL"])
 celery.conf.update(app.config)
@@ -132,7 +131,9 @@ def start(message):
 
 
 def save_response(chat_id, key, value):
+    redis_client = None
     try:
+        redis_client = redis.StrictRedis.from_url(redis_url)
         responses = redis_client.hgetall(chat_id) or {}
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
         
@@ -146,10 +147,16 @@ def save_response(chat_id, key, value):
     
     except Exception as e:
         print(f"Error in save_response {e}")
+    
+    finally:
+        if redis_client:
+            redis_client.close()
 
 
 def clear_responses(chat_id):
+    redis_client = redis.StrictRedis.from_url(redis_url)
     redis_client.delete(chat_id)
+    redis_client.close()
 
 
 def get_keyboard(question_number):
@@ -189,7 +196,9 @@ def send_email(chat_id):
     smtp_password = os.environ.get("SMTP_PASSWORD")
     from_email = os.environ.get("FROM_EMAIL")
 
+    redis_client = redis.StrictRedis.from_url(redis_url)
     responses = redis_client.hgetall(chat_id) or {}
+    redis_client.close()
     responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
     total_score = 0
     
@@ -239,6 +248,7 @@ def send_email(chat_id):
 
 @bot.message_handler(commands=["start", "restart"])
 def start(message):
+
     """Handle /start and /restart commands."""
     chat_id = message.chat.id
     clear_responses(chat_id)
@@ -250,18 +260,23 @@ def start(message):
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     chat_id = call.message.chat.id
+    
     if call.data == "restart":
         clear_responses(chat_id)
         start(call.message)
     elif call.data == "last_question":
+        redis_client = redis.StrictRedis.from_url(redis_url)
         responses = redis_client.hgetall(chat_id) or {}
+        redis_client.close
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
 
         current_question = len(responses)
         if current_question > 0:
             last_question_index = current_question - 1
             key_to_remove = f"question_{last_question_index}"
+            redis_client = redis.StrictRedis.from_url(redis_url)
             redis_client.hdel(chat_id, key_to_remove)
+            redis_client.close()
 
             bot.send_message(
                 chat_id,
@@ -319,7 +334,9 @@ def handle_callback(call):
 def handle_responses(message):
     """Handle text and audio responses."""
     chat_id = message.chat.id
+    redis_client = redis.StrictRedis.from_url(redis_url)
     responses = redis_client.hgetall(chat_id) or {}
+    redis_client.close()
 
     if not responses:
         current_question = 0
@@ -336,7 +353,9 @@ def handle_responses(message):
 
         if current_question in [3, 5]:
             key_to_remove = f"question_{current_question}"
+            redis_client = redis.StrictRedis.from_url(redis_url)
             redis_client.hdel(chat_id, key_to_remove)
+            redis_client.close()
 
             bot.send_message(
                 chat_id,

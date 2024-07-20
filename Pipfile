@@ -11,6 +11,7 @@ openai = "*"
 redis = "*"
 celery = "*"
 ffmpeg-python = "*"
+markdownmail = "*"
 
 [dev-packages]
 

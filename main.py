@@ -8,6 +8,8 @@ import ast
 import time
 import json
 import ffmpeg
+import datetime
+from markdownmail import MarkdownMail
 from celery import Celery
 from dotenv import load_dotenv
 
@@ -181,6 +183,12 @@ def get_keyboard(question_number):
 
 
 def send_email(chat_id):
+    smtp_server = os.environ.get("SMTP_SERVER")
+    smtp_port = int(os.environ.get("SMTP_PORT"))
+    smtp_login = os.environ.get("SMTP_LOGIN")
+    smtp_password = os.environ.get("SMTP_PASSWORD")
+    from_email = os.environ.get("FROM_EMAIL")
+
     responses = redis_client.hgetall(chat_id) or {}
     responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
     total_score = 0
@@ -192,6 +200,9 @@ def send_email(chat_id):
             if response:
                 response_dict = ast.literal_eval(response)
 
+                if i == 0:
+                    name = response_dict['text']
+
                 if "score" in response_dict:
                     total_score += response_dict['score']
                     message += f"Question: {question}\nAnswer: {response_dict['text']}\nRemote Path: {response_dict.get('remote_path')}\nScore: {response_dict['score']} \n\n"  
@@ -199,7 +210,28 @@ def send_email(chat_id):
                     message += f"Question: {question}\nAnswer: {response_dict['text']}\nRemote Path: {response_dict.get('remote_path')}\n\n"
         
         output = f"Total Score: {total_score}/50 \n\n{message}"
-        bot.send_message(chat_id, output)
+
+        from_name = "QueryPro Bot"
+        from_addr = f"{from_name} <{from_email}>"
+        
+        # Adding timestamp to the subject
+        timestamp = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+        subject = f"{name} {total_score} ({timestamp})"
+
+        if TO_EMAIL:
+            for to_email in TO_EMAIL:
+                email = MarkdownMail(
+                    from_addr=from_addr, to_addr=to_email, subject=subject, content=output
+                )
+                try:
+                    email.send(
+                        smtp_server, login=smtp_login, password=smtp_password, port=smtp_port
+                    )
+                    print("Email sent successfully")
+
+                except Exception as e:
+                    print("Error sending email:", e)
+
         bot.send_message(chat_id, "Data sent successfully!")
     else:
         bot.send_message(chat_id, "No data recorded yet.")

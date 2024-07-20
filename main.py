@@ -191,7 +191,7 @@ def get_keyboard(question_number):
     return keyboard
 
 
-def send_email(chat_id):
+def send_email(chat_id, redis_url, bot, questions):
     smtp_server = os.environ.get("SMTP_SERVER")
     smtp_port = int(os.environ.get("SMTP_PORT"))
     smtp_login = os.environ.get("SMTP_LOGIN")
@@ -199,9 +199,14 @@ def send_email(chat_id):
     from_email = os.environ.get("FROM_EMAIL")
     to_emails = os.environ.get("TO_EMAIL").split(',')
 
+    # Initialize Redis client
     redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
-    responses = redis_client.hgetall(chat_id) or {}
-    redis_client.close()
+    try:
+        responses = redis_client.hgetall(chat_id) or {}
+    finally:
+        redis_client.close()
+    
+    # Decode Redis responses
     responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
     
     if not responses:
@@ -210,6 +215,7 @@ def send_email(chat_id):
 
     total_score = 0
     message = "<h3>Recorded Data:</h3><br>"
+    name = "Unknown"
 
     for i, question in enumerate(questions):
         response = responses.get(f"question_{i}")
@@ -217,7 +223,7 @@ def send_email(chat_id):
             response_dict = ast.literal_eval(response)
             answer = response_dict.get('text', 'N/A')
             remote_path = response_dict.get('remote_path', 'N/A')
-            score = response_dict.get('score', None)
+            score = response_dict.get('score', 0)
 
             if i == 0:
                 name = answer
@@ -249,6 +255,7 @@ def send_email(chat_id):
 
     try:
         with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
             server.login(smtp_login, smtp_password)
             server.sendmail(from_email, to_emails, msg.as_string())
             print("Email sent successfully")

@@ -27,9 +27,9 @@ app = Flask(__name__)
 app.config["CELERY_BROKER_URL"] = os.environ.get(
     "REDIS_URL", "redis://localhost:6379/0"
 )
-app.config["CELERY_RESULT_BACKEND"] = os.environ.get(
-    "REDIS_URL", "redis://localhost:6379/0"
-)
+# app.config["CELERY_RESULT_BACKEND"] = os.environ.get(
+#     "REDIS_URL", "redis://localhost:6379/0"
+# )
 redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 pool = ConnectionPool.from_url(redis_url)
 

@@ -3,7 +3,7 @@ import openai
 from flask import Flask, request
 from telebot import TeleBot, types
 import logging
-import redis
+from redis import Redis, ConnectionPool
 import ast
 import time
 import json
@@ -31,9 +31,16 @@ app.config["CELERY_RESULT_BACKEND"] = os.environ.get(
     "REDIS_URL", "redis://localhost:6379/0"
 )
 redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+pool = ConnectionPool.from_url(redis_url)
 
 celery = Celery(app.name, broker=app.config["CELERY_BROKER_URL"])
 celery.conf.update(app.config)
+celery.conf.update(
+    {
+        "CELERY_BROKER_TRANSPORT_OPTIONS": {"max_connections": 5},
+        "CELERY_RESULT_BACKEND_TRANSPORT_OPTIONS": {"max_connections": 5},
+    }
+)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -135,7 +142,7 @@ def start(message):
 def save_response(chat_id, key, value):
     redis_client = None
     try:
-        redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
+        redis_client = Redis(connection_pool=pool)
         responses = redis_client.hgetall(chat_id) or {}
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
         
@@ -156,7 +163,7 @@ def save_response(chat_id, key, value):
 
 
 def clear_responses(chat_id):
-    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
+    redis_client = Redis(connection_pool=pool)
     redis_client.delete(chat_id)
     redis_client.close()
 
@@ -200,7 +207,7 @@ def send_email(chat_id):
     to_emails = os.environ.get("TO_EMAIL").split(',')
 
     # Initialize Redis client
-    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
+    redis_client = Redis(connection_pool=pool)
     try:
         responses = redis_client.hgetall(chat_id) or {}
     finally:
@@ -283,7 +290,7 @@ def handle_callback(call):
         clear_responses(chat_id)
         start(call.message)
     elif call.data == "last_question":
-        redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
+        redis_client = Redis(connection_pool=pool)
         responses = redis_client.hgetall(chat_id) or {}
         redis_client.close
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
@@ -292,7 +299,7 @@ def handle_callback(call):
         if current_question > 0:
             last_question_index = current_question - 1
             key_to_remove = f"question_{last_question_index}"
-            redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
+            redis_client = Redis(connection_pool=pool)
             redis_client.hdel(chat_id, key_to_remove)
             redis_client.close()
 
@@ -352,7 +359,7 @@ def handle_callback(call):
 def handle_responses(message):
     """Handle text and audio responses."""
     chat_id = message.chat.id
-    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
+    redis_client = Redis(connection_pool=pool)
     responses = redis_client.hgetall(chat_id) or {}
     redis_client.close()
 
@@ -371,7 +378,7 @@ def handle_responses(message):
 
         if current_question in [3, 5]:
             key_to_remove = f"question_{current_question}"
-            redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
+            redis_client = Redis(connection_pool=pool)
             redis_client.hdel(chat_id, key_to_remove)
             redis_client.close()
 

@@ -217,13 +217,24 @@ def send_email(chat_id):
             response_dict = ast.literal_eval(response)
             answer = response_dict.get('text', 'N/A')
             remote_path = response_dict.get('remote_path', 'N/A')
-            score = response_dict.get('score', 0)
+            score = response_dict.get('score', None)
 
             if i == 0:
                 name = answer
             
             total_score += score
-            message += f"<b>Question:</b> {question}<br><b>Answer:</b> {answer}<br><b>Remote Path:</b> {remote_path}<br><b>Score:</b> {score}<br><br>"
+
+            new_message = f"<b>Question:</b> {question}<br><b>Answer:</b> {answer}"
+
+            if remote_path != 'N/A':
+                new_message += f"<br><b>Remote Path:</b> {remote_path}"
+
+            if score is not None:
+                new_message += f"<br><b>Score:</b> {score}<br><br>"
+            else:
+                new_message += "<br><br>"
+
+            message += new_message
 
     output = f"<h2>Total Score: {total_score}/50</h2><br>{message}"
 

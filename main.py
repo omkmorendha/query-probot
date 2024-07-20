@@ -223,7 +223,7 @@ def send_email(chat_id):
             response_dict = ast.literal_eval(response)
             answer = response_dict.get('text', 'N/A')
             remote_path = response_dict.get('remote_path', 'N/A')
-            score = response_dict.get('score', 0)
+            score = response_dict.get('score', None)
 
             if i == 0:
                 name = answer

@@ -12,6 +12,7 @@ redis = "*"
 celery = "*"
 ffmpeg-python = "*"
 markdownmail = "*"
+gunicorn = "*"
 
 [dev-packages]
 

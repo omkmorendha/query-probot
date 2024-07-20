@@ -9,7 +9,9 @@ import time
 import json
 import ffmpeg
 import datetime
-from markdownmail import MarkdownMail
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import smtplib
 from celery import Celery
 from dotenv import load_dotenv
 
@@ -133,7 +135,7 @@ def start(message):
 def save_response(chat_id, key, value):
     redis_client = None
     try:
-        redis_client = redis.StrictRedis.from_url(redis_url)
+        redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
         responses = redis_client.hgetall(chat_id) or {}
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
         
@@ -154,7 +156,7 @@ def save_response(chat_id, key, value):
 
 
 def clear_responses(chat_id):
-    redis_client = redis.StrictRedis.from_url(redis_url)
+    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
     redis_client.delete(chat_id)
     redis_client.close()
 
@@ -195,56 +197,54 @@ def send_email(chat_id):
     smtp_login = os.environ.get("SMTP_LOGIN")
     smtp_password = os.environ.get("SMTP_PASSWORD")
     from_email = os.environ.get("FROM_EMAIL")
+    to_emails = os.environ.get("TO_EMAIL").split(',')
 
-    redis_client = redis.StrictRedis.from_url(redis_url)
+    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
     responses = redis_client.hgetall(chat_id) or {}
     redis_client.close()
     responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
-    total_score = 0
     
-    if responses:
-        message = "Recorded data:\n\n"
-        for i, question in enumerate(questions):
-            response = responses.get(f"question_{i}")
-            if response:
-                response_dict = ast.literal_eval(response)
-
-                if i == 0:
-                    name = response_dict['text']
-
-                if "score" in response_dict:
-                    total_score += response_dict['score']
-                    message += f"Question: {question}\nAnswer: {response_dict['text']}\nRemote Path: {response_dict.get('remote_path')}\nScore: {response_dict['score']} \n\n"  
-                else:
-                    message += f"Question: {question}\nAnswer: {response_dict['text']}\nRemote Path: {response_dict.get('remote_path')}\n\n"
-        
-        output = f"Total Score: {total_score}/50 \n\n{message}"
-
-        from_name = "QueryPro Bot"
-        from_addr = f"{from_name} <{from_email}>"
-        
-        # Adding timestamp to the subject
-        timestamp = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-        subject = f"{name} {total_score} ({timestamp})"
-
-        if TO_EMAIL:
-            for to_email in TO_EMAIL:
-                email = MarkdownMail(
-                    from_addr=from_addr, to_addr=to_email, subject=subject, content=output
-                )
-                try:
-                    email.send(
-                        smtp_server, login=smtp_login, password=smtp_password, port=smtp_port
-                    )
-                    print("Email sent successfully")
-
-                except Exception as e:
-                    print("Error sending email:", e)
-
-        bot.send_message(chat_id, "Data sent successfully!")
-    else:
+    if not responses:
         bot.send_message(chat_id, "No data recorded yet.")
+        return
 
+    total_score = 0
+    message = "<h3>Recorded Data:</h3><br>"
+
+    for i, question in enumerate(questions):
+        response = responses.get(f"question_{i}")
+        if response:
+            response_dict = ast.literal_eval(response)
+            answer = response_dict.get('text', 'N/A')
+            remote_path = response_dict.get('remote_path', 'N/A')
+            score = response_dict.get('score', 0)
+
+            if i == 0:
+                name = answer
+            
+            total_score += score
+            message += f"<b>Question:</b> {question}<br><b>Answer:</b> {answer}<br><b>Remote Path:</b> {remote_path}<br><b>Score:</b> {score}<br><br>"
+
+    output = f"<h2>Total Score: {total_score}/50</h2><br>{message}"
+
+    # Create the email
+    msg = MIMEMultipart()
+    msg['From'] = f"QueryPro Bot <{from_email}>"
+    msg['To'] = ", ".join(to_emails)
+    timestamp = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    msg['Subject'] = f"{name} {total_score} ({timestamp})"
+
+    msg.attach(MIMEText(output, 'html'))
+
+    try:
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.login(smtp_login, smtp_password)
+            server.sendmail(from_email, to_emails, msg.as_string())
+            print("Email sent successfully")
+    except Exception as e:
+        print("Error sending email:", e)
+
+    bot.send_message(chat_id, "Data sent successfully!")
 
 @bot.message_handler(commands=["start", "restart"])
 def start(message):
@@ -265,7 +265,7 @@ def handle_callback(call):
         clear_responses(chat_id)
         start(call.message)
     elif call.data == "last_question":
-        redis_client = redis.StrictRedis.from_url(redis_url)
+        redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
         responses = redis_client.hgetall(chat_id) or {}
         redis_client.close
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
@@ -274,7 +274,7 @@ def handle_callback(call):
         if current_question > 0:
             last_question_index = current_question - 1
             key_to_remove = f"question_{last_question_index}"
-            redis_client = redis.StrictRedis.from_url(redis_url)
+            redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
             redis_client.hdel(chat_id, key_to_remove)
             redis_client.close()
 
@@ -334,7 +334,7 @@ def handle_callback(call):
 def handle_responses(message):
     """Handle text and audio responses."""
     chat_id = message.chat.id
-    redis_client = redis.StrictRedis.from_url(redis_url)
+    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
     responses = redis_client.hgetall(chat_id) or {}
     redis_client.close()
 
@@ -353,7 +353,7 @@ def handle_responses(message):
 
         if current_question in [3, 5]:
             key_to_remove = f"question_{current_question}"
-            redis_client = redis.StrictRedis.from_url(redis_url)
+            redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
             redis_client.hdel(chat_id, key_to_remove)
             redis_client.close()
 

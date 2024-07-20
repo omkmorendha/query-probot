@@ -135,7 +135,7 @@ def start(message):
 def save_response(chat_id, key, value):
     redis_client = None
     try:
-        redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
+        redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
         responses = redis_client.hgetall(chat_id) or {}
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
         
@@ -156,7 +156,7 @@ def save_response(chat_id, key, value):
 
 
 def clear_responses(chat_id):
-    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
+    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
     redis_client.delete(chat_id)
     redis_client.close()
 
@@ -199,7 +199,7 @@ def send_email(chat_id):
     from_email = os.environ.get("FROM_EMAIL")
     to_emails = os.environ.get("TO_EMAIL").split(',')
 
-    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
+    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
     responses = redis_client.hgetall(chat_id) or {}
     redis_client.close()
     responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
@@ -276,7 +276,7 @@ def handle_callback(call):
         clear_responses(chat_id)
         start(call.message)
     elif call.data == "last_question":
-        redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
+        redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
         responses = redis_client.hgetall(chat_id) or {}
         redis_client.close
         responses = {k.decode("utf-8"): v.decode("utf-8") for k, v in responses.items()}
@@ -285,7 +285,7 @@ def handle_callback(call):
         if current_question > 0:
             last_question_index = current_question - 1
             key_to_remove = f"question_{last_question_index}"
-            redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
+            redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
             redis_client.hdel(chat_id, key_to_remove)
             redis_client.close()
 
@@ -345,7 +345,7 @@ def handle_callback(call):
 def handle_responses(message):
     """Handle text and audio responses."""
     chat_id = message.chat.id
-    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
+    redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
     responses = redis_client.hgetall(chat_id) or {}
     redis_client.close()
 
@@ -364,7 +364,7 @@ def handle_responses(message):
 
         if current_question in [3, 5]:
             key_to_remove = f"question_{current_question}"
-            redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=0.1)
+            redis_client = redis.StrictRedis.from_url(redis_url, socket_timeout=1)
             redis_client.hdel(chat_id, key_to_remove)
             redis_client.close()
 

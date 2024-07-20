@@ -229,14 +229,13 @@ def send_email(chat_id):
             if i == 0:
                 name = answer
             
-            total_score += score
-
             new_message = f"<b>Question:</b> {question}<br><b>Answer:</b> {answer}"
 
             if remote_path != 'N/A':
                 new_message += f"<br><b>Remote Path:</b> {remote_path}"
 
             if score is not None:
+                total_score += score
                 new_message += f"<br><b>Score:</b> {score}<br><br>"
             else:
                 new_message += "<br><br>"

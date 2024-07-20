@@ -191,7 +191,7 @@ def get_keyboard(question_number):
     return keyboard
 
 
-def send_email(chat_id, redis_url, bot, questions):
+def send_email(chat_id):
     smtp_server = os.environ.get("SMTP_SERVER")
     smtp_port = int(os.environ.get("SMTP_PORT"))
     smtp_login = os.environ.get("SMTP_LOGIN")

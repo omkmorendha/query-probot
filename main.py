@@ -282,7 +282,7 @@ def send_email(chat_id):
             new_message = f"<b>Question:</b> {question}<br><b>Answer:</b> {answer}"
 
             if remote_path != 'N/A':
-                new_message += f"<br><b>Remote Path:</b> {remote_path}"
+                new_message += f'<br><b>Remote Path:</b> <a href="{remote_path}" target="_blank">Download the voice recording</a>'
 
             if score is not None:
                 total_score += score

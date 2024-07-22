@@ -122,6 +122,52 @@ def get_score(question, transcription):
         return None
 
 
+def get_city(transcription):
+    """Generate a report based on the transcription using GPT-3.5."""
+    try:
+        openai_client = openai.OpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY"),
+        )
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo-0125",
+            messages=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Extract a city from the given prompt, reply with either only the city name or 'None' in case of failure"
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": transcription
+                        }
+                    ],
+                },
+            ],
+            temperature=0,
+        )
+        report = response.choices[0].message.content
+
+        try:
+            if report == 'None':
+                return None
+
+            return report                
+        except:
+            pass
+
+        return 0
+    
+    except Exception as e:
+        logger.error(f"Error generating report: {e}")
+        return None
+
 @bot.message_handler(commands=["start", "restart"])
 def start(message):
     """Handle /start and /restart commands."""
@@ -231,10 +277,7 @@ def send_email(chat_id):
                 name = answer
             
             if i == 1:
-                try:
-                    city = answer.split(',')[1].strip()
-                except:
-                    city = "city"
+                city = get_city(answer)
 
             new_message = f"<b>Question:</b> {question}<br><b>Answer:</b> {answer}"
 
@@ -256,7 +299,11 @@ def send_email(chat_id):
     msg['From'] = f"QueryPro Bot <{from_email}>"
     msg['To'] = ", ".join(to_emails)
     timestamp = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-    msg['Subject'] = f"{name}-{city} ({timestamp})"
+
+    if city:
+        msg['Subject'] = f"{name}-{city} ({timestamp})"
+    else:
+        msg['Subject'] = f"{name} ({timestamp})"
 
     msg.attach(MIMEText(output, 'html'))
 

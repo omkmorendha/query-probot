@@ -185,7 +185,7 @@ def get_keyboard(question_number):
 
     elif question_number >= (len(questions)):
         send_email_button = types.InlineKeyboardButton(
-            "Send email", callback_data="send_email"
+            "Submit Details", callback_data="send_email"
         )
         keyboard.add(send_email_button)
 
@@ -217,6 +217,7 @@ def send_email(chat_id):
     total_score = 0
     message = "<h3>Recorded Data:</h3><br>"
     name = "Unknown"
+    city = "Unknown"
 
     for i, question in enumerate(questions):
         response = responses.get(f"question_{i}")
@@ -229,6 +230,12 @@ def send_email(chat_id):
             if i == 0:
                 name = answer
             
+            if i == 1:
+                try:
+                    city = answer.split(',')[1].strip()
+                except:
+                    city = "city"
+
             new_message = f"<b>Question:</b> {question}<br><b>Answer:</b> {answer}"
 
             if remote_path != 'N/A':
@@ -249,7 +256,7 @@ def send_email(chat_id):
     msg['From'] = f"QueryPro Bot <{from_email}>"
     msg['To'] = ", ".join(to_emails)
     timestamp = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-    msg['Subject'] = f"{name} {total_score} ({timestamp})"
+    msg['Subject'] = f"{name}, {city} {total_score} ({timestamp})"
 
     msg.attach(MIMEText(output, 'html'))
 
@@ -262,7 +269,7 @@ def send_email(chat_id):
     except Exception as e:
         print("Error sending email:", e)
 
-    bot.send_message(chat_id, "Application submitted successfully!")
+    bot.send_message(chat_id, "Details submitted successfully.")
 
 @bot.message_handler(commands=["start", "restart"])
 def start(message):

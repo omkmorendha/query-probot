@@ -262,7 +262,7 @@ def send_email(chat_id):
     except Exception as e:
         print("Error sending email:", e)
 
-    bot.send_message(chat_id, "Data sent successfully!")
+    bot.send_message(chat_id, "Application submitted successfully!")
 
 @bot.message_handler(commands=["start", "restart"])
 def start(message):

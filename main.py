@@ -256,7 +256,7 @@ def send_email(chat_id):
     msg['From'] = f"QueryPro Bot <{from_email}>"
     msg['To'] = ", ".join(to_emails)
     timestamp = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-    msg['Subject'] = f"{name}, {city} {total_score} ({timestamp})"
+    msg['Subject'] = f"{name}-{city} ({timestamp})"
 
     msg.attach(MIMEText(output, 'html'))
 
